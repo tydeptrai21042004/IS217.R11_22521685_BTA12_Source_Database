@@ -1,45 +1,19 @@
-USE NYC311_DW;
+USE RetailDW;
 GO
-
 EXEC etl.usp_ReportValidation;
 GO
-
--- Completeness: staging must equal API expected count.
-SELECT
-    b.BatchId,
-    b.ExpectedRows,
-    b.StagingRows,
-    b.FactRows,
-    b.RejectedRows,
-    AccountedRows = b.FactRows + b.RejectedRows,
-    IsComplete =
-        CASE
-            WHEN b.ExpectedRows = b.StagingRows
-             AND b.StagingRows = b.FactRows + b.RejectedRows
-            THEN 1 ELSE 0
-        END,
-    b.Status,
-    b.ValidationNote
-FROM etl.ETLBatch b
-ORDER BY b.BatchId DESC;
+SELECT BatchId,ExpectedRows,StagingRows,FactRows,RejectedRows,AccountedRows=FactRows+RejectedRows,
+ IsComplete=CASE WHEN ExpectedRows=StagingRows AND StagingRows=FactRows+RejectedRows THEN 1 ELSE 0 END,
+ Status,ValidationNote FROM etl.ETLBatch ORDER BY BatchId DESC;
 GO
-
--- Fact grain must be one row per source UniqueKey.
-SELECT UniqueKey, COUNT(*) DuplicateCount
-FROM dw.Fact311Request
-GROUP BY UniqueKey
-HAVING COUNT(*) > 1;
+SELECT InvalidFKs=COUNT(*) FROM dw.FactSalesLine f
+LEFT JOIN dw.DimDate d ON d.DateKey=f.DateKey
+LEFT JOIN dw.DimProduct p ON p.ProductKey=f.ProductKey
+LEFT JOIN dw.DimCustomer c ON c.CustomerKey=f.CustomerKey
+LEFT JOIN dw.DimCountry co ON co.CountryKey=f.CountryKey
+WHERE d.DateKey IS NULL OR p.ProductKey IS NULL OR c.CustomerKey IS NULL OR co.CountryKey IS NULL;
 GO
-
--- Foreign key lookup should be complete for all facts.
-SELECT
-    MissingCreatedDate = SUM(CASE WHEN cd.DateKey IS NULL THEN 1 ELSE 0 END),
-    MissingAgency = SUM(CASE WHEN a.AgencyKey IS NULL THEN 1 ELSE 0 END),
-    MissingComplaint = SUM(CASE WHEN c.ComplaintKey IS NULL THEN 1 ELSE 0 END),
-    MissingLocation = SUM(CASE WHEN l.LocationKey IS NULL THEN 1 ELSE 0 END)
-FROM dw.Fact311Request f
-LEFT JOIN dw.DimDate cd ON cd.DateKey=f.CreatedDateKey
-LEFT JOIN dw.DimAgency a ON a.AgencyKey=f.AgencyKey
-LEFT JOIN dw.DimComplaint c ON c.ComplaintKey=f.ComplaintKey
-LEFT JOIN dw.DimLocation l ON l.LocationKey=f.LocationKey;
+SELECT CancellationLines=SUM(CASE WHEN IsCancellation=1 THEN 1 ELSE 0 END),
+ ReturnLines=SUM(CASE WHEN Quantity<0 THEN 1 ELSE 0 END), NetRevenue=SUM(LineAmount)
+FROM dw.FactSalesLine;
 GO

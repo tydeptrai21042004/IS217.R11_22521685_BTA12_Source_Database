@@ -1,43 +1,56 @@
-# IS217.R11 BTA12 — Linux/WSL automatic SSIS
-Bùi Võ Duy Vũ — 22521685
+# IS217.R11 - 22521685 - BTA12 - UCI Online Retail / SSIS on Linux
 
-Works on Ubuntu 20.04/22.04 (including WSL2 development) with SQL Server 2022 and native `mssql-server-is`.
+**Sinh viên:** Bùi Võ Duy Vũ  
+**MSSV:** 22521685  
+**Lớp:** IS217.R11
 
-## Fully automatic sudo without putting your password in the submitted ZIP
-Use either:
-```bash
-export BTA12_SUDO_PASSWORD='YOUR_UBUNTU_PASSWORD'
-cd Source/NYC311_ETL
-./run_all.sh --install
-```
-or save it once outside the project:
-```bash
-cd Source/NYC311_ETL
-./save_sudo_password.sh
-./run_all.sh --install
-```
-The local secret file is `~/.config/bta12/sudo_password` (mode 600). The assignment ZIP never contains that password.
-
-If `MSSQL_SA_PASSWORD` is unset, a strong SQL Server `sa` password is generated to `~/.config/bta12/sa_password` (mode 600).
+This version replaces NYC 311 because its Socrata API returned repeated HTTP 403 responses in WSL.
 
 ## Dataset
-Official NYC Open Data dataset `erm2-nwe9`. The downloader searches complete calendar days and retains only a full day whose exact serialized CSV is <= **50,000,000 bytes**. No sampling and no truncation. API count must equal verified CSV row count.
+
+- UCI Machine Learning Repository: **Online Retail**, dataset **352**
+- DOI: **10.24432/C5BW33**
+- Whole real dataset: **541,909 transaction lines**
+- Period: **01/12/2010 - 09/12/2011**
+- Official XLSX: about **22.6 MB**
+- No sampling, no truncation, no simulated rows
+- The downloaded ZIP, extracted XLSX, and generated CSV are each hard-limited to **50,000,000 bytes**
+
+Columns: `InvoiceNo`, `StockCode`, `Description`, `Quantity`, `InvoiceDate`, `UnitPrice`, `CustomerID`, `Country`.
+Invoices starting with `C` are preserved as cancellations; negative quantities are preserved as returns.
+
+## Warehouse
+
+```text
+                    DimDate
+                       |
+DimProduct --- FactSalesLine --- DimCustomer
+                       |
+                   DimCountry
+```
+
+`InvoiceNo` is a degenerate dimension. Measures include Quantity, UnitPrice, LineAmount and LineCount.
+
+## Run
+
+```bash
+cd Source/OnlineRetail_ETL
+chmod +x *.sh automation/*.sh ssis/*.sh ../../Database/*.sh
+./run_all.sh --install
+```
+
+Since your SQL Server/SSIS are already installed, normally you can now use:
+
+```bash
+./run_all.sh
+```
 
 ## Output
-`Database/generated/NYC311_DW.mdf`, `NYC311_DW_log.ldf`, and `validation_output.txt`.
 
-## Microsoft APT key repair (NO_PUBKEY EB3E94ADBE1229CF)
-The installer now repairs this automatically before the first Microsoft-backed
-`apt-get update`:
-
-- removes stale BTA12 Microsoft repository definitions;
-- imports `microsoft.asc` into `/etc/apt/trusted.gpg.d/`;
-- also creates `/usr/share/keyrings/microsoft-prod.gpg`;
-- verifies fingerprint `BC528686B50D79E339D3721CEB3E94ADBE1229CF`;
-- recreates SQL Server 2022 and Microsoft `prod` repositories with explicit
-  `signed-by=/usr/share/keyrings/microsoft-prod.gpg`;
-- refreshes APT and confirms `mssql-server`, `mssql-server-is`, and
-  `mssql-tools18` have installation candidates before installation.
-
-`./run_all.sh --install` asks for the Ubuntu sudo password at most once per run
-(hidden input) and reuses it in memory. It is not written into the submission ZIP.
+```text
+Database/generated/
+  RetailDW.mdf
+  RetailDW_log.ldf
+  validation_output.txt
+  source_manifest.json
+```

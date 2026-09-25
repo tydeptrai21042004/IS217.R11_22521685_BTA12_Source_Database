@@ -1,0 +1,9 @@
+{
+  "dataset": "UCI Online Retail",
+  "uci_dataset_id": 352,
+  "download_url": "https://archive.ics.uci.edu/static/public/352/online%2Bretail.zip",
+  "expected_rows": 541909,
+  "max_bytes": 50000000,
+  "database": "RetailDW",
+  "source_columns": ["InvoiceNo","StockCode","Description","Quantity","InvoiceDate","UnitPrice","CustomerID","Country"]
+}
