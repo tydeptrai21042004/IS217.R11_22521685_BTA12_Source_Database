@@ -48,8 +48,10 @@ curl --fail --show-error --silent --location \
   -o "$TMP_ASC"
 
 # Verify we really downloaded Microsoft's package signing key.
-if ! gpg --show-keys --with-colons "$TMP_ASC" 2>/dev/null | \
-     grep -qi 'BC528686B50D79E339D3721CEB3E94ADBE1229CF'; then
+# Capture output first so `pipefail` cannot turn a successful fingerprint
+# match into a false failure through SIGPIPE.
+KEY_INFO="$(gpg --show-keys --with-colons "$TMP_ASC" 2>/dev/null || true)"
+if [[ "$KEY_INFO" != *"BC528686B50D79E339D3721CEB3E94ADBE1229CF"* ]]; then
   echo '[FAIL] Downloaded Microsoft signing key has an unexpected fingerprint.' >&2
   exit 1
 fi
@@ -82,17 +84,23 @@ echo '[INFO] Refreshing package metadata with repaired Microsoft keyring.'
 sudo_env DEBIAN_FRONTEND=noninteractive apt-get update
 
 # Make sure apt sees the packages before attempting a large install.
-for pkg in mssql-server mssql-server-is mssql-tools18; do
-  if ! apt-cache policy "$pkg" | grep -q 'Candidate:'; then
-    echo "[FAIL] APT cannot resolve package: $pkg" >&2
-    apt-cache policy "$pkg" || true
-    exit 1
-  fi
-  if apt-cache policy "$pkg" | grep -q 'Candidate: (none)'; then
+# IMPORTANT: do not pipe `apt-cache policy` into `grep -q` while `pipefail`
+# is enabled. grep exits immediately after its first match, which can send
+# SIGPIPE to apt-cache and incorrectly make a successful lookup look failed.
+apt_candidate() {
+  local pkg="$1" policy candidate
+  policy="$(apt-cache policy "$pkg" 2>&1 || true)"
+  candidate="$(awk '/^[[:space:]]*Candidate:/ { print $2; exit }' <<<"$policy")"
+  if [[ -z "$candidate" || "$candidate" == "(none)" ]]; then
     echo "[FAIL] No installation candidate for: $pkg" >&2
-    apt-cache policy "$pkg" || true
-    exit 1
+    printf '%s\n' "$policy" >&2
+    return 1
   fi
+  echo "[PASS] APT candidate: $pkg=$candidate"
+}
+
+for pkg in mssql-server mssql-server-is mssql-tools18; do
+  apt_candidate "$pkg"
 done
 
 sudo_env ACCEPT_EULA=Y DEBIAN_FRONTEND=noninteractive apt-get install -y \
