@@ -1,170 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DB_ROOT="$REPO_ROOT/Database"
-DATA_DIR="$SCRIPT_DIR/data"
-MANIFEST_JSON="$DATA_DIR/manifest.json"
-MANIFEST_CSV="$DATA_DIR/manifest.csv"
-PACKAGE="$SCRIPT_DIR/ssis/00_Master_NYC311_ETL.dtsx"
-GENERATED_DB="$DB_ROOT/generated"
-VALIDATION_OUT="$GENERATED_DB/validation_output.txt"
-
-SERVER="localhost"
-USER_NAME="sa"
-START_DATE="2025-01-15"
-LOOKBACK_DAYS=45
-MAX_BYTES=50000000
-INSTALL_DEPS=0
-EXPORT_DB=1
-
-usage() {
-  cat <<'EOF'
-Usage: ./run_all.sh [options]
-
-Options:
-  --server HOST             SQL Server host (default: localhost)
-  --user USER               SQL login (default: sa)
-  --start-date YYYY-MM-DD   Search backwards from this date (default: 2025-01-15)
-  --lookback-days N         Number of complete days to consider (default: 45)
-  --max-bytes N             Hard CSV cap (default: 50000000 = exactly 50.00 MB decimal)
-  --install                 Run setup_linux.sh first if prerequisites are missing
-  --no-export-db            Do not offline/copy MDF and LDF at the end
-  -h, --help                Show help
-
-Environment:
-  MSSQL_SA_PASSWORD         Required. Used for SQL Authentication; never saved in DTSX.
-EOF
-}
-
-while (( $# )); do
-  case "$1" in
-    --server) SERVER="$2"; shift 2 ;;
-    --user) USER_NAME="$2"; shift 2 ;;
-    --start-date) START_DATE="$2"; shift 2 ;;
-    --lookback-days) LOOKBACK_DAYS="$2"; shift 2 ;;
-    --max-bytes) MAX_BYTES="$2"; shift 2 ;;
-    --install) INSTALL_DEPS=1; shift ;;
-    --no-export-db) EXPORT_DB=0; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
-  esac
-done
-
-if [[ -z "${MSSQL_SA_PASSWORD:-}" ]]; then
-  read -rsp 'SQL Server SA password: ' MSSQL_SA_PASSWORD
-  echo
-  export MSSQL_SA_PASSWORD
-fi
-export SQLCMDPASSWORD="$MSSQL_SA_PASSWORD"
-
-find_sqlcmd() {
-  if command -v sqlcmd >/dev/null 2>&1; then command -v sqlcmd; return; fi
-  if [[ -x /opt/mssql-tools18/bin/sqlcmd ]]; then echo /opt/mssql-tools18/bin/sqlcmd; return; fi
-  if [[ -x /opt/mssql-tools/bin/sqlcmd ]]; then echo /opt/mssql-tools/bin/sqlcmd; return; fi
-  return 1
-}
-
-if ! "$SCRIPT_DIR/check_prerequisites.sh"; then
-  if (( INSTALL_DEPS )); then
-    "$SCRIPT_DIR/setup_linux.sh"
-  else
-    echo "[FAIL] Missing prerequisites. On supported Ubuntu 20.04 run:" >&2
-    echo "       ./run_all.sh --install" >&2
-    exit 1
-  fi
-fi
-
-SQLCMD="$(find_sqlcmd)" || { echo '[FAIL] sqlcmd not found' >&2; exit 1; }
-mkdir -p "$DATA_DIR" "$GENERATED_DB"
-
-cat <<EOF
-============================================================
- IS217.R11 - 22521685 - BTA12 Linux ETL
- SQL Server       : $SERVER
- Search start     : $START_DATE
- Lookback         : $LOOKBACK_DAYS days
- HARD dataset cap : $MAX_BYTES bytes (50 MB default)
-============================================================
-EOF
-
-echo "[1/9] Auto-select and download a COMPLETE real NYC 311 day <= hard cap"
-python3 "$SCRIPT_DIR/automation/download_nyc311.py" \
-  --start-date "$START_DATE" \
-  --lookback-days "$LOOKBACK_DAYS" \
-  --output-dir "$DATA_DIR" \
-  --manifest-json "$MANIFEST_JSON" \
-  --manifest-csv "$MANIFEST_CSV" \
-  --max-bytes "$MAX_BYTES"
-
-LOCAL_CSV="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["file"])' "$MANIFEST_JSON")"
-CHOSEN_DATE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["selection"]["chosen_date"])' "$MANIFEST_JSON")"
-ACTUAL_BYTES="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["size_bytes"])' "$MANIFEST_JSON")"
-if (( ACTUAL_BYTES > MAX_BYTES )); then
-  echo "[FAIL] Dataset-size invariant violated: $ACTUAL_BYTES > $MAX_BYTES" >&2
-  exit 1
-fi
-
-echo "[2/9] Copy verified CSV where local SQL Server service can read it"
-SQL_IMPORT_DIR="/var/opt/mssql/import/nyc311_bta12"
-SQL_CSV="$SQL_IMPORT_DIR/nyc311_${CHOSEN_DATE}.csv"
-sudo mkdir -p "$SQL_IMPORT_DIR"
-sudo install -o mssql -g mssql -m 0640 "$LOCAL_CSV" "$SQL_CSV"
-
-if [[ "$(stat -c %s "$LOCAL_CSV")" -gt "$MAX_BYTES" ]]; then
-  echo '[FAIL] Local dataset exceeds hard cap after copy check' >&2; exit 1
-fi
-
-echo "[3/9] Create/reset warehouse schema and ETL procedures"
-"$SQLCMD" -S "$SERVER" -U "$USER_NAME" -C -b -i "$DB_ROOT/sql/00_create_database.sql"
-"$SQLCMD" -S "$SERVER" -U "$USER_NAME" -C -b -i "$DB_ROOT/sql/01_etl_procedures.sql"
-
-echo "[4/9] Configure runtime metadata"
-python3 "$SCRIPT_DIR/automation/configure_runtime.py" \
-  --server "$SERVER" --user "$USER_NAME" \
-  --manifest "$MANIFEST_JSON" --sql-source-path "$SQL_CSV"
-
-echo "[5/9] Generate Linux-runnable DTSX (no stored SQL password)"
-python3 "$SCRIPT_DIR/ssis/build_ssis_package.py" --output "$PACKAGE"
-
-echo "[6/9] Execute SSIS with dtexec + SQL Authentication"
-python3 "$SCRIPT_DIR/ssis/run_ssis.py" \
-  --package "$PACKAGE" --server "$SERVER" --user "$USER_NAME"
-
-echo "[7/9] Run warehouse validation"
-"$SQLCMD" -S "$SERVER" -U "$USER_NAME" -C -b -d NYC311_DW \
-  -Q "EXEC etl.usp_ReportValidation;" | tee "$VALIDATION_OUT"
-"$SQLCMD" -S "$SERVER" -U "$USER_NAME" -C -b -i "$DB_ROOT/sql/02_manual_validation.sql" \
-  | tee -a "$VALIDATION_OUT"
-
-echo "[8/9] Verify the selected source is still <= the hard cap"
-FINAL_SIZE="$(stat -c %s "$LOCAL_CSV")"
-if (( FINAL_SIZE > MAX_BYTES )); then
-  echo "[FAIL] Dataset exceeds hard cap: $FINAL_SIZE > $MAX_BYTES" >&2
-  exit 1
-fi
-echo "[PASS] Dataset size: $FINAL_SIZE bytes <= $MAX_BYTES bytes"
-
-if (( EXPORT_DB )); then
-  echo "[9/9] Export consistent MDF/LDF copies"
-  "$DB_ROOT/export_database_files.sh" "$SERVER" "$USER_NAME" NYC311_DW "$GENERATED_DB"
-else
-  echo "[9/9] MDF/LDF export skipped (--no-export-db)"
-fi
-
-cat <<EOF
-
-============================================================
-SUCCESS
-Chosen complete day : $CHOSEN_DATE
-Dataset             : $LOCAL_CSV
-Dataset bytes       : $FINAL_SIZE (hard cap $MAX_BYTES)
-Sampling            : NO
-Truncation          : NO
-Manifest            : $MANIFEST_JSON
-SSIS package        : $PACKAGE
-Validation          : $VALIDATION_OUT
-Database output     : $GENERATED_DB
-============================================================
-EOF
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"; source "$HERE/common.sh"
+INSTALL=0; START_DATE='2025-01-15'; LOOKBACK=60; MAX_BYTES=50000000
+while [[ $# -gt 0 ]]; do case "$1" in --install) INSTALL=1;shift;; --start-date) START_DATE="$2";shift 2;; --lookback-days) LOOKBACK="$2";shift 2;; --max-bytes) MAX_BYTES="$2";shift 2;; -h|--help) echo 'Usage: ./run_all.sh [--install] [--start-date YYYY-MM-DD] [--lookback-days N]';exit 0;; *) echo "Unknown $1";exit 2;; esac; done
+(( MAX_BYTES<=50000000 )) || { echo '[FAIL] >50MB refused'; exit 2; }; ensure_sa_password; (( INSTALL )) && "$HERE/setup_linux.sh"
+"$HERE/automation/check_prerequisites.sh" || { echo '[FAIL] Run with --install'; exit 1; }; start_sql_server_if_needed; wait_for_sql; SQLCMD="$(sqlcmd_path)"; SQL=("$SQLCMD" -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b)
+DATA="$HERE/data";mkdir -p "$DATA"; CSV="$DATA/nyc311_source.csv"; MAN="$DATA/manifest.json"; SDIR='/var/opt/mssql/data/bta12_source'; SCSV="$SDIR/nyc311_source.csv"; PKG="$HERE/ssis/00_Master_NYC311_ETL.dtsx"; mkdir -p "$ROOT/Database/generated"
+echo '[1/9] Select/download complete real dataset <=50MB'; python3 "$HERE/automation/download_nyc311.py" --start-date "$START_DATE" --lookback-days "$LOOKBACK" --max-bytes "$MAX_BYTES" --output "$CSV" --manifest "$MAN"; ACT=$(stat -c %s "$CSV"); (( ACT<=50000000 )) || exit 1
+echo '[2/9] Copy source for SQL Server'; sudo_run mkdir -p "$SDIR"; sudo_run cp -f "$CSV" "$SCSV"; sudo_run chown mssql:mssql "$SCSV"; sudo_run chmod 640 "$SCSV"
+echo '[3/9] Build warehouse'; "${SQL[@]}" -i "$ROOT/Database/sql/00_create_database.sql"; "${SQL[@]}" -i "$ROOT/Database/sql/01_etl_procedures.sql"
+readarray -t M < <(python3 -c "import json; m=json.load(open('$MAN')); print(m['rows_verified']); print(m['sha256']); print(m['selected_complete_day'])"); ROWS="${M[0]}"; SHA="${M[1]}"; DAY="${M[2]}"
+echo '[4/9] Configure runtime'; "${SQL[@]}" -d NYC311_DW -Q "UPDATE etl.RuntimeConfig SET ConfigValue=N'$SCSV' WHERE ConfigKey=N'SourceCsvPath'; UPDATE etl.RuntimeConfig SET ConfigValue=N'$ROWS' WHERE ConfigKey=N'ExpectedSourceRows'; UPDATE etl.RuntimeConfig SET ConfigValue=N'$SHA' WHERE ConfigKey=N'SourceSha256'; UPDATE etl.RuntimeConfig SET ConfigValue=N'$DAY' WHERE ConfigKey=N'DatasetDate';"
+echo '[5/9] Generate DTSX'; python3 "$HERE/ssis/build_dtsx.py" --output "$PKG"
+echo '[6/9] Run SSIS'; "$HERE/ssis/run_ssis.sh" "$PKG"
+echo '[7/9] Validate'; "${SQL[@]}" -d NYC311_DW -Q 'EXEC etl.usp_ReportValidation;' | tee "$ROOT/Database/generated/validation_output.txt"; STATUS=$("${SQL[@]}" -d NYC311_DW -h -1 -W -Q "SET NOCOUNT ON; SELECT TOP(1) Status FROM etl.ETLBatch ORDER BY BatchId DESC;"|xargs); [[ "$STATUS" == SUCCEEDED ]] || { echo "[FAIL] ETL status=$STATUS";exit 1; }
+echo '[8/9] Export MDF/LDF'; "$ROOT/Database/export_database_files.sh" "$ROOT/Database/generated"
+echo '[9/9] Done'; find "$ROOT/Database/generated" -maxdepth 1 -type f -printf '%f %s bytes\n'|sort; printf '[PASS] day=%s rows=%s dataset=%s bytes\n' "$DAY" "$ROWS" "$ACT"
