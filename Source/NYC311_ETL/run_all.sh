@@ -3,7 +3,7 @@ set -Eeuo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"; source "$HERE/common.sh"
 INSTALL=0; START_DATE='2025-01-15'; LOOKBACK=60; MAX_BYTES=50000000
 while [[ $# -gt 0 ]]; do case "$1" in --install) INSTALL=1;shift;; --start-date) START_DATE="$2";shift 2;; --lookback-days) LOOKBACK="$2";shift 2;; --max-bytes) MAX_BYTES="$2";shift 2;; -h|--help) echo 'Usage: ./run_all.sh [--install] [--start-date YYYY-MM-DD] [--lookback-days N]';exit 0;; *) echo "Unknown $1";exit 2;; esac; done
-(( MAX_BYTES<=50000000 )) || { echo '[FAIL] >50MB refused'; exit 2; }; ensure_sa_password; (( INSTALL )) && "$HERE/setup_linux.sh"
+(( MAX_BYTES<=50000000 )) || { echo '[FAIL] >50MB refused'; exit 2; }; ensure_sa_password; if (( INSTALL )); then ensure_sudo_password; "$HERE/setup_linux.sh"; fi
 "$HERE/automation/check_prerequisites.sh" || { echo '[FAIL] Run with --install'; exit 1; }; start_sql_server_if_needed; wait_for_sql; SQLCMD="$(sqlcmd_path)"; SQL=("$SQLCMD" -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b)
 DATA="$HERE/data";mkdir -p "$DATA"; CSV="$DATA/nyc311_source.csv"; MAN="$DATA/manifest.json"; SDIR='/var/opt/mssql/data/bta12_source'; SCSV="$SDIR/nyc311_source.csv"; PKG="$HERE/ssis/00_Master_NYC311_ETL.dtsx"; mkdir -p "$ROOT/Database/generated"
 echo '[1/9] Select/download complete real dataset <=50MB'; python3 "$HERE/automation/download_nyc311.py" --start-date "$START_DATE" --lookback-days "$LOOKBACK" --max-bytes "$MAX_BYTES" --output "$CSV" --manifest "$MAN"; ACT=$(stat -c %s "$CSV"); (( ACT<=50000000 )) || exit 1

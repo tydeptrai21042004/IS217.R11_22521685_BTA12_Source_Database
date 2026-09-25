@@ -25,3 +25,19 @@ Official NYC Open Data dataset `erm2-nwe9`. The downloader searches complete cal
 
 ## Output
 `Database/generated/NYC311_DW.mdf`, `NYC311_DW_log.ldf`, and `validation_output.txt`.
+
+## Microsoft APT key repair (NO_PUBKEY EB3E94ADBE1229CF)
+The installer now repairs this automatically before the first Microsoft-backed
+`apt-get update`:
+
+- removes stale BTA12 Microsoft repository definitions;
+- imports `microsoft.asc` into `/etc/apt/trusted.gpg.d/`;
+- also creates `/usr/share/keyrings/microsoft-prod.gpg`;
+- verifies fingerprint `BC528686B50D79E339D3721CEB3E94ADBE1229CF`;
+- recreates SQL Server 2022 and Microsoft `prod` repositories with explicit
+  `signed-by=/usr/share/keyrings/microsoft-prod.gpg`;
+- refreshes APT and confirms `mssql-server`, `mssql-server-is`, and
+  `mssql-tools18` have installation candidates before installation.
+
+`./run_all.sh --install` asks for the Ubuntu sudo password at most once per run
+(hidden input) and reuses it in memory. It is not written into the submission ZIP.

@@ -3,8 +3,22 @@ set -Eeuo pipefail
 BTA12_CONFIG_DIR="${HOME}/.config/bta12"
 mkdir -p "$BTA12_CONFIG_DIR"; chmod 700 "$BTA12_CONFIG_DIR" 2>/dev/null || true
 if [[ -z "${BTA12_SUDO_PASSWORD:-}" && -f "$BTA12_CONFIG_DIR/sudo_password" ]]; then BTA12_SUDO_PASSWORD="$(cat "$BTA12_CONFIG_DIR/sudo_password")"; fi
-sudo_run(){ if [[ "${EUID}" -eq 0 ]]; then "$@"; elif sudo -n true 2>/dev/null; then sudo "$@"; elif [[ -n "${BTA12_SUDO_PASSWORD:-}" ]]; then printf '%s\n' "$BTA12_SUDO_PASSWORD" | sudo -S -p '' "$@"; else sudo "$@"; fi; }
-sudo_env(){ if [[ "${EUID}" -eq 0 ]]; then env "$@"; elif sudo -n true 2>/dev/null; then sudo env "$@"; elif [[ -n "${BTA12_SUDO_PASSWORD:-}" ]]; then printf '%s\n' "$BTA12_SUDO_PASSWORD" | sudo -S -p '' env "$@"; else sudo env "$@"; fi; }
+ensure_sudo_password(){
+  if [[ "${EUID}" -eq 0 ]] || sudo -n true 2>/dev/null; then return 0; fi
+  if [[ -n "${BTA12_SUDO_PASSWORD:-}" ]]; then return 0; fi
+  if [[ -t 0 ]]; then
+    read -r -s -p "[sudo] password for ${USER}: " BTA12_SUDO_PASSWORD
+    echo
+    export BTA12_SUDO_PASSWORD
+    if ! printf '%s\n' "$BTA12_SUDO_PASSWORD" | sudo -S -p '' -v >/dev/null 2>&1; then
+      unset BTA12_SUDO_PASSWORD
+      echo '[FAIL] Invalid sudo password.' >&2
+      return 1
+    fi
+  fi
+}
+sudo_run(){ ensure_sudo_password || return 1; if [[ "${EUID}" -eq 0 ]]; then "$@"; elif sudo -n true 2>/dev/null; then sudo "$@"; elif [[ -n "${BTA12_SUDO_PASSWORD:-}" ]]; then printf '%s\n' "$BTA12_SUDO_PASSWORD" | sudo -S -p '' "$@"; else sudo "$@"; fi; }
+sudo_env(){ ensure_sudo_password || return 1; if [[ "${EUID}" -eq 0 ]]; then env "$@"; elif sudo -n true 2>/dev/null; then sudo env "$@"; elif [[ -n "${BTA12_SUDO_PASSWORD:-}" ]]; then printf '%s\n' "$BTA12_SUDO_PASSWORD" | sudo -S -p '' env "$@"; else sudo env "$@"; fi; }
 sqlcmd_path(){ command -v sqlcmd 2>/dev/null || { [[ -x /opt/mssql-tools18/bin/sqlcmd ]] && echo /opt/mssql-tools18/bin/sqlcmd; } || { [[ -x /opt/mssql-tools/bin/sqlcmd ]] && echo /opt/mssql-tools/bin/sqlcmd; }; }
 dtexec_path(){ command -v dtexec 2>/dev/null || { [[ -x /opt/ssis/bin/dtexec ]] && echo /opt/ssis/bin/dtexec; }; }
 ensure_sa_password(){

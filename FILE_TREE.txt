@@ -1,24 +1,24 @@
-Database/
-  export_database_files.sh
-  generated/
-  sql/
-    00_create_database.sql
-    01_etl_procedures.sql
-    02_manual_validation.sql
-FILE_TREE.txt
+Database
+Database/export_database_files.sh
+Database/generated
+Database/sql
+Database/sql/00_create_database.sql
+Database/sql/01_etl_procedures.sql
+Database/sql/02_manual_validation.sql
 README.md
-Source/
-  NYC311_ETL/
-    automation/
-      check_prerequisites.sh
-      download_nyc311.py
-    common.sh
-    config/
-      project_config.json
-    data/
-    run_all.sh
-    save_sudo_password.sh
-    setup_linux.sh
-    ssis/
-      build_dtsx.py
-      run_ssis.sh
+Source
+Source/NYC311_ETL
+Source/NYC311_ETL/automation
+Source/NYC311_ETL/automation/check_prerequisites.sh
+Source/NYC311_ETL/automation/download_nyc311.py
+Source/NYC311_ETL/common.sh
+Source/NYC311_ETL/config
+Source/NYC311_ETL/config/project_config.json
+Source/NYC311_ETL/data
+Source/NYC311_ETL/repair_microsoft_repo.sh
+Source/NYC311_ETL/run_all.sh
+Source/NYC311_ETL/save_sudo_password.sh
+Source/NYC311_ETL/setup_linux.sh
+Source/NYC311_ETL/ssis
+Source/NYC311_ETL/ssis/build_dtsx.py
+Source/NYC311_ETL/ssis/run_ssis.sh
