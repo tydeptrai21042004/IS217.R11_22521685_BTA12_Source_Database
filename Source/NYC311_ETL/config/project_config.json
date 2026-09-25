@@ -1,10 +1,15 @@
 {
   "dataset_id": "erm2-nwe9",
-  "dataset_date": "2025-01-15",
-  "max_mb": 49,
+  "selection_mode": "automatic_complete_calendar_day_under_hard_size_cap",
+  "search_start_date": "2025-01-15",
+  "lookback_days": 45,
+  "hard_max_bytes": 50000000,
+  "hard_max_mb_decimal": 50.0,
   "page_size": 50000,
   "database": "NYC311_DW",
-  "default_sql_server": ".\\SQLEXPRESS",
+  "default_sql_server": "localhost",
+  "default_sql_user": "sa",
+  "linux_target": "Ubuntu 20.04 + SQL Server 2022 + mssql-server-is",
   "source_columns": [
     "unique_key",
     "created_date",

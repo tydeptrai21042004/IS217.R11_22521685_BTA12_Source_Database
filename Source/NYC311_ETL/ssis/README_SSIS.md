@@ -1,10 +1,13 @@
-# SSIS automation
+# SSIS on Linux
 
-`build_ssis_package.ps1` creates `00_Master_NYC311_ETL.dtsx` by using the
-installed Microsoft SSIS object model.
+This project is designed for **native SQL Server 2022 SSIS on Ubuntu 20.04**.
 
-The package contains five SSIS Execute SQL Tasks connected by Success
-precedence constraints:
+- `build_ssis_package.py` generates a package-format-version 8 `.dtsx` containing five **Execute SQL Tasks**.
+- The DTSX contains a dummy OLE DB password only.
+- `run_ssis.py` calls Linux `dtexec` and overrides `NYC311_DW` at runtime with `/CONNECTION`.
+- SQL Authentication is used because Windows Authentication is not supported by SSIS on Linux.
+
+Control flow:
 
 1. `etl.usp_BeginBatch`
 2. `etl.usp_LoadStaging`
@@ -12,8 +15,4 @@ precedence constraints:
 4. `etl.usp_LoadFact`
 5. `etl.usp_ValidateAndCloseBatch`
 
-`run_ssis.ps1` locates `DTExec.exe` and executes the generated package.
-
-This design keeps SSIS as the orchestration/execution layer while SQL Server
-contains the deterministic transformation rules. The Python code only obtains
-and verifies the external source dataset and writes runtime metadata.
+The SSIS layer remains the package/control-flow execution engine, while deterministic warehouse transformation logic is implemented in SQL Server stored procedures.

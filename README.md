@@ -1,132 +1,178 @@
-# IS217.R11 - BTA12 - NYC 311 ETL / SSIS
+# IS217.R11 — BTA12 — NYC 311 ETL / SSIS (Linux-ready)
 
 **Sinh viên:** Bùi Võ Duy Vũ  
 **MSSV:** 22521685  
-**Lớp:** IS217.R11  
-**Bài:** BTA12 - Thiết kế quá trình trích xuất, biến đổi và nạp dữ liệu bằng SSIS
+**Lớp:** IS217.R11
 
-## Phạm vi của gói này
+## Mục tiêu
 
-Gói này chỉ tạo hai phần theo yêu cầu hiện tại:
+Project hiện thực quy trình **Extract → Transform → Load bằng SSIS** trên Linux và SQL Server 2022. Bản này đã bỏ các phụ thuộc Windows (`.ps1`, `.cmd`, SSPI, `C:\...`).
 
-- `Source/`: mã nguồn automation + SSIS package generator.
-- `Database/`: SQL tạo kho dữ liệu, thủ tục ETL, kiểm tra và script xuất `.mdf/.ldf`.
+> Full native SSIS setup is pinned to **Ubuntu 20.04** because Microsoft's current Linux SSIS installation guidance for SQL Server 2022 uses the Ubuntu 20.04 repository. SSIS-in-container is not supported by Microsoft.
 
-**Không bao gồm**:
-- `Video/`
-- `Document/`
+## Dataset thật, giới hạn cứng 50 MB
 
-## Dataset
+Nguồn: NYC Open Data — `311 Service Requests from 2020 to Present`, dataset ID `erm2-nwe9`.
 
-Nguồn chính thức: NYC Open Data - `311 Service Requests from 2020 to Present`  
-Dataset ID: `erm2-nwe9`
+`download_nyc311.py` tự động:
 
-Mặc định project lấy **toàn bộ service requests có Created Date trong ngày 2025-01-15**.
-Đây là một lát cắt thời gian đầy đủ của nguồn thật, không phải random sample.
+1. Bắt đầu từ `2025-01-15` và quét lùi tối đa 45 ngày.
+2. Với mỗi ngày, gọi API `COUNT(*)` và lấy mẫu nhỏ chỉ để **ước lượng kích thước**.
+3. Ưu tiên ngày đầy đủ lớn nhất có ước lượng an toàn dưới giới hạn.
+4. Tải **toàn bộ ngày đã chọn**, theo `unique_key ASC`.
+5. Không random sampling, không `head()`, không cắt bớt record.
+6. Kiểm tra từng dòng trước khi ghi: **không bao giờ giữ file > 50,000,000 bytes**.
+7. Nếu một ngày thực tế vượt 50 MB, xóa file tạm và thử ngày khác.
+8. Đối chiếu API row count = CSV row count, kiểm tra duplicate key, tính SHA-256.
+9. Chỉ giữ một file CSV cuối cùng của ngày được chọn.
 
-Các trường dùng:
-`unique_key`, `created_date`, `closed_date`, `agency`, `agency_name`,
-`complaint_type`, `descriptor`, `location_type`, `incident_zip`, `city`,
-`borough`, `status`, `latitude`, `longitude`.
+Giới hạn mặc định là **50.00 MB decimal = 50,000,000 bytes**, nghiêm ngặt hơn cách tính 50 MiB.
 
-Downloader:
-- gọi API count trước khi tải;
-- tải phân trang;
-- không bỏ dòng;
-- đối chiếu `expected_rows == downloaded_rows`;
-- tính SHA-256;
-- từ chối file lớn hơn 49 MB.
+## Cấu trúc
 
-## Yêu cầu máy
+```text
+Database/
+├── export_database_files.sh
+├── generated/
+└── sql/
+    ├── 00_create_database.sql
+    ├── 01_etl_procedures.sql
+    └── 02_manual_validation.sql
 
-Windows 10/11, Python 3.10+, SQL Server 2019/2022 hoặc SQL Server Express,
-SQL Server Integration Services (SSIS runtime), `sqlcmd`, và OLE DB Driver
-`MSOLEDBSQL`.
-
-Visual Studio + SSDT chỉ cần nếu muốn mở/chỉnh package bằng giao diện.
-Luồng tự động có thể chạy bằng `dtexec`.
-
-## Chạy nhanh
-
-Mở PowerShell tại thư mục:
-
-`Source\NYC311_ETL`
-
-Chạy:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\run_all.ps1 -SqlServer ".\SQLEXPRESS"
+Source/NYC311_ETL/
+├── run_all.sh
+├── setup_linux.sh
+├── check_prerequisites.sh
+├── automation/
+│   ├── download_nyc311.py
+│   └── configure_runtime.py
+├── config/
+│   └── project_config.json
+└── ssis/
+    ├── build_ssis_package.py
+    ├── run_ssis.py
+    └── README_SSIS.md
 ```
 
-Nếu SQL Server là default instance:
+Không bao gồm `Video/` và `Document/` theo yêu cầu hiện tại.
 
-```powershell
-.\run_all.ps1 -SqlServer "localhost"
+## Yêu cầu
+
+- Ubuntu 20.04 x86_64
+- Python 3
+- SQL Server 2022 Developer/Express
+- SQL Server Integration Services package `mssql-server-is`
+- `sqlcmd` (`mssql-tools18`)
+- `sudo` để đưa CSV vào `/var/opt/mssql/import` và sao chép `.mdf/.ldf`
+
+## Cách chạy nhanh
+
+### 1. Đặt mật khẩu SQL Server
+
+```bash
+export MSSQL_SA_PASSWORD='Your_Strong_Password_Here'
 ```
 
-Pipeline:
+### 2. Nếu máy chưa có SQL Server/SSIS
 
-1. Tải dataset thật từ NYC Open Data.
-2. Kiểm tra dataset < 49 MB và toàn vẹn row count.
-3. Tạo/reset `NYC311_DW`.
-4. Ghi runtime config vào database.
-5. Tự sinh `00_Master_NYC311_ETL.dtsx`.
-6. Chạy package bằng `dtexec`.
-7. Kiểm tra source/staging/fact/rejected.
-8. Xuất kết quả kiểm tra.
-9. Cố gắng copy `.mdf` và `.ldf` vào `Database\generated`.
+```bash
+cd Source/NYC311_ETL
+./run_all.sh --install
+```
 
-## Kiến trúc
+Hoặc cài riêng:
+
+```bash
+./setup_linux.sh
+./run_all.sh
+```
+
+### 3. Nếu đã cài đủ dependencies
+
+```bash
+cd Source/NYC311_ETL
+./run_all.sh
+```
+
+Có thể đổi ngày bắt đầu tìm:
+
+```bash
+./run_all.sh --start-date 2025-02-01 --lookback-days 60
+```
+
+**Không nên tăng `--max-bytes`** nếu bài yêu cầu dữ liệu không quá 50 MB.
+
+## `run_all.sh` làm gì?
 
 ```text
 NYC Open Data API
-      |
-      v
-download_nyc311.py
-  - complete day
-  - pagination
-  - count check
-  - SHA-256
-      |
-      v
-CSV (<49 MB)
-      |
-      v
-00_Master_NYC311_ETL.dtsx
-      |
-      +--> etl.usp_BeginBatch
-      +--> etl.usp_LoadStaging
-      +--> etl.usp_LoadDimensions
-      +--> etl.usp_LoadFact
-      +--> etl.usp_ValidateAndCloseBatch
-      |
-      v
-NYC311_DW
-  stg.NYC311Raw
-  dw.DimDate
-  dw.DimAgency
-  dw.DimComplaint
-  dw.DimLocation
-  dw.Fact311Request
-  etl.ETLBatch
-  etl.Rejected311
+      ↓
+Auto-select complete real day <= 50 MB
+      ↓
+Verify rows + size + SHA-256
+      ↓
+Copy CSV to /var/opt/mssql/import/nyc311_bta12
+      ↓
+Create NYC311_DW
+      ↓
+Create ETL stored procedures
+      ↓
+Generate 00_Master_NYC311_ETL.dtsx
+      ↓
+dtexec (SQL Authentication)
+      ↓
+Staging → Dimensions → Fact
+      ↓
+Validation
+      ↓
+Database/generated/*.mdf + *.ldf
 ```
 
-## Lưu ý về BULK INSERT
+## SSIS package
 
-SQL Server service phải đọc được file CSV. Project mặc định tải file vào:
+Package được sinh bằng Python để không cần SSDT/Visual Studio trên Linux. Package chứa 5 Execute SQL Tasks nối bằng Success precedence constraints:
 
-`C:\Users\Public\Documents\NYC311_BTA12\`
+1. Begin ETL batch
+2. Extract/load CSV to staging
+3. Transform/load dimensions
+4. Transform/load fact
+5. Validate and close batch
 
-để giảm lỗi quyền đọc so với file nằm trong thư mục user cá nhân.
+`dtexec` nhận connection string tại runtime qua `/CONNECTION`. Mật khẩu SQL **không được lưu vào DTSX**.
 
-Nếu SQL Server chạy trên máy khác, cần đặt CSV ở một UNC share mà SQL Server service có thể đọc.
+## Warehouse
 
-## File database
+- `stg.NYC311Raw`
+- `dw.DimDate`
+- `dw.DimAgency`
+- `dw.DimComplaint`
+- `dw.DimLocation`
+- `dw.Fact311Request`
+- `etl.RuntimeConfig`
+- `etl.ETLBatch`
+- `etl.Rejected311`
 
-`export_database_files.ps1` đưa database offline trong thời gian rất ngắn,
-copy file `.mdf/.ldf` sang `Database\generated`, sau đó đưa database online lại.
+## Kiểm tra toàn vẹn
 
-Nếu SQL Server account hoặc tài khoản Windows không đủ quyền đọc thư mục
-DATA của SQL Server, bước copy sẽ báo cảnh báo nhưng ETL vẫn hoàn tất.
+Pipeline bắt buộc:
+
+```text
+API expected rows = staging rows
+staging rows = fact rows + rejected rows
+Fact UniqueKey không trùng
+Fact foreign keys đều tồn tại
+source CSV <= 50,000,000 bytes
+```
+
+Nếu một invariant thất bại, script dừng với exit code khác 0.
+
+## MDF/LDF
+
+Cuối pipeline, database được đặt OFFLINE trong thời gian ngắn, `.mdf/.ldf` được copy nhất quán sang `Database/generated/`, sau đó database được đưa ONLINE lại ngay cả khi copy lỗi.
+
+## Bảo mật
+
+- Không commit mật khẩu vào source.
+- `MSSQL_SA_PASSWORD` chỉ lấy từ environment/prompt.
+- DTSX chứa dummy password không hợp lệ và được override lúc chạy.
+- Với bài thực tế hơn, có thể tạo login ETL riêng thay vì dùng `sa`.

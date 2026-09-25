@@ -1,23 +1,26 @@
 Database/
-  export_database_files.ps1
+  export_database_files.sh
   generated/
     .gitkeep
   sql/
     00_create_database.sql
     01_etl_procedures.sql
     02_manual_validation.sql
+FILE_TREE.txt
+LINUX_NOTES.md
 README.md
 Source/
   NYC311_ETL/
     automation/
-      check_prerequisites.ps1
       configure_runtime.py
       download_nyc311.py
+    check_prerequisites.sh
     config/
       project_config.json
-    run_all.cmd
-    run_all.ps1
+    run_all.sh
+    setup_linux.sh
     ssis/
+      00_Master_NYC311_ETL.dtsx
       README_SSIS.md
-      build_ssis_package.ps1
-      run_ssis.ps1
+      build_ssis_package.py
+      run_ssis.py
