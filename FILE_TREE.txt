@@ -1,0 +1,23 @@
+Database/
+  export_database_files.ps1
+  generated/
+    .gitkeep
+  sql/
+    00_create_database.sql
+    01_etl_procedures.sql
+    02_manual_validation.sql
+README.md
+Source/
+  NYC311_ETL/
+    automation/
+      check_prerequisites.ps1
+      configure_runtime.py
+      download_nyc311.py
+    config/
+      project_config.json
+    run_all.cmd
+    run_all.ps1
+    ssis/
+      README_SSIS.md
+      build_ssis_package.ps1
+      run_ssis.ps1

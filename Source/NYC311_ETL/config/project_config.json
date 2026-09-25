@@ -1,0 +1,24 @@
+{
+  "dataset_id": "erm2-nwe9",
+  "dataset_date": "2025-01-15",
+  "max_mb": 49,
+  "page_size": 50000,
+  "database": "NYC311_DW",
+  "default_sql_server": ".\\SQLEXPRESS",
+  "source_columns": [
+    "unique_key",
+    "created_date",
+    "closed_date",
+    "agency",
+    "agency_name",
+    "complaint_type",
+    "descriptor",
+    "location_type",
+    "incident_zip",
+    "city",
+    "borough",
+    "status",
+    "latitude",
+    "longitude"
+  ]
+}
