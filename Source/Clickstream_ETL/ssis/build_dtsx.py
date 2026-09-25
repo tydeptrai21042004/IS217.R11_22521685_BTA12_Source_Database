@@ -9,11 +9,11 @@ NS_DTS = f"{{{DTS}}}"
 NS_SQL = f"{{{SQL}}}"
 
 TASKS = [
-    ("01 - Begin ETL batch", "EXEC etl.usp_BeginBatch;"),
-    ("02 - Extract/load CSV to staging", "EXEC etl.usp_LoadStaging;"),
-    ("03 - Transform/load dimensions", "EXEC etl.usp_LoadDimensions;"),
-    ("04 - Transform/load fact", "EXEC etl.usp_LoadFact;"),
-    ("05 - Validate and close batch", "EXEC etl.usp_ValidateAndCloseBatch;"),
+    ("Task_01_Begin_ETL_Batch", "EXEC etl.usp_BeginBatch;"),
+    ("Task_02_Load_Staging", "EXEC etl.usp_LoadStaging;"),
+    ("Task_03_Load_Dimensions", "EXEC etl.usp_LoadDimensions;"),
+    ("Task_04_Load_Fact", "EXEC etl.usp_LoadFact;"),
+    ("Task_05_Validate_And_Close_Batch", "EXEC etl.usp_ValidateAndCloseBatch;"),
 ]
 
 def qname(ns, name): return f"{{{ns}}}{name}"
@@ -27,7 +27,7 @@ def main():
 
     root=Element(qname(DTS,"Executable"),{
         qname(DTS,"ExecutableType"):"Microsoft.Package",
-        qname(DTS,"ObjectName"):"00_Master_Clickstream_ETL",
+        qname(DTS,"ObjectName"):"Master_Clickstream_ETL",
         qname(DTS,"DTSID"):"{11111111-1111-1111-1111-111111111111}",
         qname(DTS,"CreationName"):"Microsoft.Package"
     })
