@@ -1,56 +1,77 @@
-# IS217.R11 - 22521685 - BTA12 - UCI Online Retail / SSIS on Linux
+# IS217.R11 — 22521685 — BTA12 Fast Linux/WSL
 
-**Sinh viên:** Bùi Võ Duy Vũ  
-**MSSV:** 22521685  
+**Sinh viên:** Bùi Võ Duy Vũ — **MSSV:** 22521685  
 **Lớp:** IS217.R11
 
-This version replaces NYC 311 because its Socrata API returned repeated HTTP 403 responses in WSL.
+Bản này dùng **UCI Clickstream Data for Online Shopping** thay cho NYC311/Online Retail XLSX để tránh API 403 và giảm thời gian tải.
 
 ## Dataset
 
-- UCI Machine Learning Repository: **Online Retail**, dataset **352**
-- DOI: **10.24432/C5BW33**
-- Whole real dataset: **541,909 transaction lines**
-- Period: **01/12/2010 - 09/12/2011**
-- Official XLSX: about **22.6 MB**
-- No sampling, no truncation, no simulated rows
-- The downloaded ZIP, extracted XLSX, and generated CSV are each hard-limited to **50,000,000 bytes**
+Nguồn chính thức: UCI Machine Learning Repository — Clickstream Data for Online Shopping (ID 553).
 
-Columns: `InvoiceNo`, `StockCode`, `Description`, `Quantity`, `InvoiceDate`, `UnitPrice`, `CustomerID`, `Country`.
-Invoices starting with `C` are preserved as cancellations; negative quantities are preserved as returns.
+- 165,474 dòng thật.
+- 14 biến.
+- File dữ liệu CSV gốc khoảng 6.4 MB.
+- UCI download archive chỉ khoảng 776 KB.
+- Không sampling.
+- Không truncate.
+- Hard cap 50,000,000 bytes.
+- Có cache: chạy lại sẽ không download nếu dataset đã được kiểm chứng.
 
 ## Warehouse
 
-```text
-                    DimDate
-                       |
-DimProduct --- FactSalesLine --- DimCustomer
-                       |
-                   DimCountry
-```
+**Grain:** 1 row trong FactClickstream = 1 click event trong một session.
 
-`InvoiceNo` is a degenerate dimension. Measures include Quantity, UnitPrice, LineAmount and LineCount.
+Dimensions:
+- `dw.DimDate`
+- `dw.DimCountry`
+- `dw.DimProduct`
+- `dw.DimPage`
 
-## Run
+Fact:
+- `dw.FactClickstream`
+
+Measures / degenerate attributes:
+- SessionID
+- ClickOrder
+- Price
+- PriceAboveCategoryAvg
+- ClickCount = 1
+
+## Chạy
+
+SQL Server 2022 + SSIS của bạn đã được cài rồi, nên **không cần `--install` nữa**.
 
 ```bash
-cd Source/OnlineRetail_ETL
+cd Source/Clickstream_ETL
 chmod +x *.sh automation/*.sh ssis/*.sh ../../Database/*.sh
+./run_all.sh
+```
+
+Chỉ dùng `--install` khi bạn thật sự cài lại môi trường:
+
+```bash
 ./run_all.sh --install
 ```
 
-Since your SQL Server/SSIS are already installed, normally you can now use:
+Ép tải lại dataset:
 
 ```bash
-./run_all.sh
+./run_all.sh --refresh-data
 ```
 
 ## Output
 
 ```text
 Database/generated/
-  RetailDW.mdf
-  RetailDW_log.ldf
-  validation_output.txt
-  source_manifest.json
+├── ClickstreamDW.mdf
+├── ClickstreamDW_log.ldf
+├── validation_output.txt
+└── source_manifest.json
 ```
+
+## Lưu ý
+
+- Password `sa` đọc từ `MSSQL_SA_PASSWORD`, hoặc từ `~/.config/bta12/sa_password`.
+- Sudo password không được hard-code vào project.
+- Dataset cache nằm trong `Source/Clickstream_ETL/data/`.

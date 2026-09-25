@@ -1,7 +1,8 @@
-DATASET_CHANGE.md
+DATASET.md
 Database/
   export_database_files.sh
   generated/
+    .gitkeep
   sql/
     00_create_database.sql
     01_etl_procedures.sql
@@ -9,13 +10,11 @@ Database/
 FILE_TREE.txt
 README.md
 Source/
-  OnlineRetail_ETL/
+  Clickstream_ETL/
     automation/
       check_prerequisites.sh
-      download_online_retail.py
+      download_clickstream.py
     common.sh
-    config/
-      project_config.json
     data/
     repair_microsoft_repo.sh
     run_all.sh
